@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Apex BIM Solutions",
+  "description": "Premium enterprise 3D Building Information Modeling (BIM) solutions and digital twin engineering for architectural, structural, and MEP projects worldwide.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "userProfile": {
+      "title": "User Profile",
+      "description": "Public profile and role of a signed in user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The Firebase Auth user ID" },
+        "email": { "type": "string", "description": "The user's registered email" },
+        "displayName": { "type": "string", "description": "Display name of the user" },
+        "photoURL": { "type": "string", "description": "The photo URL of the user" },
+        "role": { "type": "string", "enum": ["client", "admin"], "description": "Role assigned to the user" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last updated timestamp" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "consultation": {
+      "title": "BIM Consultation Request",
+      "description": "Request for architectural/structural/MEP BIM project consultation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The generated document ID" },
+        "userId": { "type": "string", "description": "The user ID of the client who submitted the request" },
+        "fullName": { "type": "string", "description": "Full name of the client representative" },
+        "companyName": { "type": "string", "description": "Name of the construction or architecture company" },
+        "email": { "type": "string", "description": "Direct email address" },
+        "phoneNumber": { "type": "string", "description": "Direct contact phone number" },
+        "projectType": { "type": "string", "description": "Type of BIM service required" },
+        "message": { "type": "string", "description": "Detailed scope description of the project" },
+        "status": { "type": "string", "enum": ["pending", "reviewing", "engineering", "quoted", "completed"], "description": "Workflow status of the consultation" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Submission timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last workflow transition timestamp" }
+      },
+      "required": ["id", "userId", "fullName", "companyName", "email", "phoneNumber", "projectType", "message", "status", "createdAt", "updatedAt"]
+    },
+    "message": {
+      "title": "Consultation Message",
+      "description": "Real-time communication message between client and coordinating engineer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The generated message ID" },
+        "authorId": { "type": "string", "description": "User ID of the message sender" },
+        "authorName": { "type": "string", "description": "Name of the message sender" },
+        "authorRole": { "type": "string", "enum": ["client", "admin"], "description": "The role of the message sender" },
+        "message": { "type": "string", "description": "The text message content" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of message transmission" }
+      },
+      "required": ["id", "authorId", "authorName", "authorRole", "message", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "userProfile",
+      "description": "Stored user profile and role details."
+    },
+    "/consultations/{consultationId}": {
+      "schema": "consultation",
+      "description": "Global consultation entries."
+    },
+    "/consultations/{consultationId}/messages/{messageId}": {
+      "schema": "message",
+      "description": "Real-time chat messages under a specific consultation request."
+    }
+  }
+}

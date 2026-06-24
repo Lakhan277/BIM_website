@@ -1,0 +1,142 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'lakhanifas@gmail.com';
+    }
+
+    function isOwner(uid) {
+      return isEmailVerified() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Entity validations
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 7
+        && data.uid is string && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && data.displayName is string && data.displayName.size() <= 128
+        && data.photoURL is string && data.photoURL.size() <= 1024
+        && data.role is string && (data.role == 'client' || data.role == 'admin')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidConsultation(data) {
+      return data.keys().hasAll(['id', 'userId', 'fullName', 'companyName', 'email', 'phoneNumber', 'projectType', 'message', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 11
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 128
+        && data.companyName is string && data.companyName.size() >= 2 && data.companyName.size() <= 128
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 256
+        && data.phoneNumber is string && data.phoneNumber.size() >= 5 && data.phoneNumber.size() <= 32
+        && data.projectType is string && data.projectType.size() <= 128
+        && data.message is string && data.message.size() >= 10 && data.message.size() <= 10000
+        && data.status is string && (data.status == 'pending' || data.status == 'reviewing' || data.status == 'engineering' || data.status == 'quoted' || data.status == 'completed')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['id', 'authorId', 'authorName', 'authorRole', 'message', 'createdAt'])
+        && data.keys().size() == 6
+        && data.id is string && data.id.size() <= 128
+        && data.authorId is string && data.authorId.size() <= 128
+        && data.authorName is string && data.authorName.size() <= 128
+        && data.authorRole is string && (data.authorRole == 'client' || data.authorRole == 'admin')
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 2000
+        && data.createdAt is timestamp;
+    }
+
+    // Match rules for user profiles
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isValidId(userId)
+        && isOwner(userId) 
+        && isValidUserProfile(request.resource.data)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role == 'client' // Users cannot self-escalate to admin
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+        
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(request.resource.data)
+        && request.resource.data.role == resource.data.role // Role is immutable
+        && request.resource.data.uid == resource.data.uid // UID is immutable
+        && request.resource.data.createdAt == resource.data.createdAt // Original timestamp is immutable
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']);
+    }
+
+    // Match rules for consultation records
+    match /consultations/{consultationId} {
+      allow get: if isValidId(consultationId) && (isOwner(resource.data.userId) || isAdmin());
+      allow list: if isAdmin() || (isEmailVerified() && resource.data.userId == request.auth.uid);
+
+      allow create: if isValidId(consultationId)
+        && isValidConsultation(request.resource.data)
+        && isOwner(request.resource.data.userId)
+        && request.resource.data.status == 'pending' // New leads must start as pending
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isValidId(consultationId)
+        && isValidConsultation(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && (
+          // Admin can change status & update
+          (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']))
+          ||
+          // Client can update message only if pending
+          (isOwner(resource.data.userId) && resource.data.status == 'pending' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(consultationId) && (isAdmin() || (isOwner(resource.data.userId) && resource.data.status == 'pending'));
+
+      // Real-time messages subcollection (relational check)
+      match /messages/{messageId} {
+        allow read: if isValidId(messageId) && (
+          isAdmin() ||
+          isOwner(get(/databases/$(database)/documents/consultations/$(consultationId)).data.userId)
+        );
+
+        allow create: if isValidId(messageId)
+          && isValidMessage(request.resource.data)
+          && request.resource.data.id == messageId
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && (
+            (isAdmin() && request.resource.data.authorRole == 'admin')
+            ||
+            (isOwner(get(/databases/$(database)/documents/consultations/$(consultationId)).data.userId) && request.resource.data.authorRole == 'client')
+          );
+      }
+    }
+  }
+}
